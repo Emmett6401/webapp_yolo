@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam Object Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <h1>Webcam Object Detection</h1>
+    <video id="webcam" autoplay playsinline width="640" height="480"></video>
+    <canvas id="output" width="640" height="480"></canvas>
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 },
+                audio: false
+            });
+            video.srcObject = stream;
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    resolve(video);
+                };
+            });
+        }
+
+        async function loadModelAndDetect() {
+            const model = await cocoSsd.load(); // Load COCO-SSD model
+            console.log("Model loaded!");
+
+            // Start detection loop
+            detectFrame(video, model);
+        }
+
+        function detectFrame(video, model) {
+            model.detect(video).then(predictions => {
+                // Clear the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw the video frame
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Draw predictions
+                predictions.forEach(prediction => {
+                    const [x, y, width, height] = prediction.bbox;
+                    ctx.strokeStyle = "green";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, width, height);
+                    ctx.font = "18px Arial";
+                    ctx.fillStyle = "green";
+                    ctx.fillText(
+                        `${prediction.class} (${(prediction.score * 100).toFixed(1)}%)`,
+                        x,
+                        y > 10 ? y - 5 : y + 15
+                    );
+                });
+
+                // Continue detection
+                requestAnimationFrame(() => detectFrame(video, model));
+            });
+        }
+
+        // Initialize the webcam and model
+        setupCamera().then(() => {
+            video.play();
+            loadModelAndDetect();
+        });
+    </script>
+</body>
+</html>
