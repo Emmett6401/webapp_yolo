@@ -1,90 +1,219 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Webcam Object Detection</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin: 0;
-            padding: 0;
-        }
-        canvas {
-            border: 1px solid black;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>웹캠 객체 인식</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+
+    #camera-select {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    video {
+      display: none;
+    }
+
+    canvas {
+      display: block;
+      margin: 0 auto;
+      border: 1px solid black;
+      max-width: 100%;
+      height: auto;
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 20px;
+      color: #333;
+    }
+  </style>
 </head>
 <body>
-    <h1>Webcam Object Detection</h1>
-    <video id="webcam" autoplay playsinline width="640" height="480"></video>
-    <canvas id="output" width="640" height="480"></canvas>
-    <script>
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('output');
-        const ctx = canvas.getContext('2d');
+  <h1>웹캠 객체 인식</h1>
 
-        async function setupCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { 
-                    width: 640, 
-                    height: 480, 
-                    facingMode: "environment" // Use the main (rear) camera
-                },
-                audio: false
-            });
-            video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    resolve(video);
-                };
-            });
-        }
+  <select id="camera-select">
+    <option value="user">전면 카메라</option>
+    <option value="environment">후면 카메라</option>
+  </select>
+  <button id="start-btn">시작</button>
 
-        async function loadModelAndDetect() {
-            const model = await cocoSsd.load(); // Load COCO-SSD model
-            console.log("Model loaded!");
+  <video id="webcam" autoplay playsinline></video>
+  <canvas id="output"></canvas>
+  <div id="info">감지된 객체가 여기에 표시됩니다.</div>
 
-            // Start detection loop
-            detectFrame(video, model);
-        }
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('output');
+    const ctx = canvas.getContext('2d');
+    const cameraSelect = document.getElementById('camera-select');
+    const startBtn = document.getElementById('start-btn');
+    const info = document.getElementById('info');
+    let stream = null;
 
-        function detectFrame(video, model) {
-            model.detect(video).then(predictions => {
-                // Clear the canvas
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 영어 → 한글 클래스명 매핑
+    const labelMapKo = {
+      'person': '사람',
+      'bicycle': '자전거',
+      'car': '자동차',
+      'motorcycle': '오토바이',
+      'airplane': '비행기',
+      'bus': '버스',
+      'train': '기차',
+      'truck': '트럭',
+      'boat': '보트',
+      'traffic light': '신호등',
+      'fire hydrant': '소화전',
+      'stop sign': '정지표지',
+      'parking meter': '주차미터기',
+      'bench': '벤치',
+      'bird': '새',
+      'cat': '고양이',
+      'dog': '강아지',
+      'horse': '말',
+      'sheep': '양',
+      'cow': '소',
+      'elephant': '코끼리',
+      'bear': '곰',
+      'zebra': '얼룩말',
+      'giraffe': '기린',
+      'backpack': '백팩',
+      'umbrella': '우산',
+      'handbag': '핸드백',
+      'tie': '넥타이',
+      'suitcase': '여행가방',
+      'frisbee': '프리스비',
+      'skis': '스키',
+      'snowboard': '스노보드',
+      'sports ball': '공',
+      'kite': '연',
+      'baseball bat': '야구 배트',
+      'baseball glove': '야구 글러브',
+      'skateboard': '스케이트보드',
+      'surfboard': '서핑보드',
+      'tennis racket': '테니스 라켓',
+      'bottle': '병',
+      'wine glass': '와인잔',
+      'cup': '컵',
+      'fork': '포크',
+      'knife': '칼',
+      'spoon': '숟가락',
+      'bowl': '그릇',
+      'banana': '바나나',
+      'apple': '사과',
+      'sandwich': '샌드위치',
+      'orange': '오렌지',
+      'broccoli': '브로콜리',
+      'carrot': '당근',
+      'hot dog': '핫도그',
+      'pizza': '피자',
+      'donut': '도넛',
+      'cake': '케이크',
+      'chair': '의자',
+      'couch': '소파',
+      'potted plant': '화분',
+      'bed': '침대',
+      'dining table': '식탁',
+      'toilet': '변기',
+      'tv': 'TV',
+      'laptop': '노트북',
+      'mouse': '마우스',
+      'remote': '리모컨',
+      'keyboard': '키보드',
+      'cell phone': '휴대폰',
+      'microwave': '전자레인지',
+      'oven': '오븐',
+      'toaster': '토스터기',
+      'sink': '세면대',
+      'refrigerator': '냉장고',
+      'book': '책',
+      'clock': '시계',
+      'vase': '꽃병',
+      'scissors': '가위',
+      'teddy bear': '곰인형',
+      'hair drier': '헤어드라이어',
+      'toothbrush': '칫솔'
+    };
 
-                // Draw the video frame
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    async function setupCamera(facingMode) {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
 
-                // Draw predictions
-                predictions.forEach(prediction => {
-                    const [x, y, width, height] = prediction.bbox;
-                    ctx.strokeStyle = "green";
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(x, y, width, height);
-                    ctx.font = "18px Arial";
-                    ctx.fillStyle = "green";
-                    ctx.fillText(
-                        `${prediction.class} (${(prediction.score * 100).toFixed(1)}%)`,
-                        x,
-                        y > 10 ? y - 5 : y + 15
-                    );
-                });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode },
+        audio: false
+      });
 
-                // Continue detection
-                requestAnimationFrame(() => detectFrame(video, model));
-            });
-        }
+      video.srcObject = stream;
 
-        // Initialize the webcam and model
-        setupCamera().then(() => {
-            video.play();
-            loadModelAndDetect();
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    async function loadModelAndDetect() {
+      const model = await cocoSsd.load();
+      console.log("모델 로드 완료!");
+      detectFrame(video, model);
+    }
+
+    function detectFrame(video, model) {
+      model.detect(video).then(predictions => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const detectedNames = new Set(); // 중복 방지용
+
+        predictions.forEach(prediction => {
+          const [x, y, width, height] = prediction.bbox;
+          const label = labelMapKo[prediction.class] || prediction.class;
+
+          ctx.strokeStyle = "green";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, width, height);
+          ctx.font = "18px Arial";
+          ctx.fillStyle = "green";
+          ctx.fillText(
+            `${label} (${(prediction.score * 100).toFixed(1)}%)`,
+            x,
+            y > 10 ? y - 5 : y + 15
+          );
+
+          detectedNames.add(label);
         });
-    </script>
+
+        // 감지된 객체 설명 출력
+        if (detectedNames.size > 0) {
+          info.textContent = [...detectedNames].join(', ') + '에 대해 설명할 수 있어요.';
+        } else {
+          info.textContent = '감지된 객체가 없습니다.';
+        }
+
+        requestAnimationFrame(() => detectFrame(video, model));
+      });
+    }
+
+    startBtn.addEventListener('click', async () => {
+      const selectedFacingMode = cameraSelect.value;
+      await setupCamera(selectedFacingMode);
+      video.play();
+      loadModelAndDetect();
+    });
+  </script>
 </body>
 </html>
